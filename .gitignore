@@ -1,0 +1,94 @@
+# ---------------------------------------
+# Java
+# ---------------------------------------
+
+*.class
+*.jar
+*.war
+*.ear
+
+# VS Code
+.vscode/
+
+# Build output
+/out/
+/target/
+/build/
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.*
+*.env
+
+# Package Managers
+node_modules/
+.pnpm-debug.log
+.yarn-debug.log
+.yarn-error.log
+
+# Maven
+.mvn/
+!/.mvn/wrapper/maven-wrapper.jar
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+target/
+
+# Gradle
+.gradle/
+build/
+
+# IntelliJ IDEA
+.idea/
+.gigaide/
+*.iws
+*.iml
+*.ipr
+
+# OS generated files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# JetBrains Rider
+.idea/
+*.sln.iml
+
+# Backup files
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# Test reports
+/test-output/
+*.ser
+
+# Coverage and reports
+coverage/
+jacoco.exec
+*.ec
+*.em
+
+# Logs and caches
+logs/
+*.log
+log/
+cache/
+tmp/
+
+# Snapshots
+.snapshots/
+
+# Misc
+*.orig
+*.rej

@@ -1,0 +1,49 @@
+# Wallet Service (тестовое задание)
+
+Сервис кошельков: REST API для изменения баланса (DEPOSIT/WITHDRAW) и получения текущего баланса.
+
+## Стек
+- Java 17
+- Spring Boot 3
+- PostgreSQL 16
+- Liquibase
+- Docker / docker-compose
+- Tests: JUnit 5, Spring Boot Test, Testcontainers
+
+## Важные замечания по ТЗ (assumptions / ambiguities)
+1) В ТЗ указано `Spring 3` и `java 8-17`. Spring Boot 3 требует Java 17.
+   ✅ Поэтому проект сделан на **Java 17 + Spring Boot 3** (consistency of stack).
+
+2) Эндпоинты в ТЗ названы не единообразно:
+   - `POST /api/v1/wallet`
+   - `GET /api/v1/wallets/{WALLET_UUID}`
+   ✅ Реализовано **как в ТЗ**, чтобы не было рассинхрона с возможными скрытыми проверками.
+
+3) В ТЗ не описан способ создания кошелька.
+   ✅ Допущение: кошельки создаются заранее внешней системой/скриптами. Для тестов кошелек создаётся вставкой в БД.
+
+4) Пример JSON в ТЗ записан невалидно (без кавычек у ключей).
+   ✅ Сервис принимает корректный JSON. Невалидный JSON возвращает **400 Bad Request**.
+
+## Конкурентность (1000 RPS на один кошелёк)
+Ключевая цель — избежать lost update и 5xx из-за гонок.
+
+Решение: **атомарное обновление баланса на уровне Postgres** одним SQL-запросом:
+- `balance = balance + delta`
+- для withdraw: обновление разрешено только если `balance + delta >= 0`
+- используется `UPDATE ... WHERE ... RETURNING ...`
+
+Таким образом, корректность обеспечивается на уровне БД без Java-level locks (`synchronized`) и без "read-modify-write" гонок.
+
+## API
+
+### POST /api/v1/wallet
+Изменение баланса.
+
+Request:
+```json
+{
+  "walletId": "uuid",
+  "operationType": "DEPOSIT",
+  "amount": 1000
+}
