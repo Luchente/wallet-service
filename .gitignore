@@ -31,7 +31,9 @@ node_modules/
 
 # Maven
 .mvn/
-!/.mvn/wrapper/maven-wrapper.jar
+!.mvn/wrapper/
+!.mvn/wrapper/maven-wrapper.jar
+!.mvn/wrapper/maven-wrapper.properties
 pom.xml.tag
 pom.xml.releaseBackup
 pom.xml.versionsBackup
@@ -92,3 +94,5 @@ tmp/
 # Misc
 *.orig
 *.rej
+
+HELP.md
