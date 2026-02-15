@@ -15,7 +15,7 @@ import java.util.concurrent.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 @SpringBootTest
-class WalletConcurrencyIT extends AbstractPostgresIT {
+class WalletConcurrencyTest extends AbstractPostgresTest {
 
     @Autowired
     private WalletService walletService;

@@ -1,8 +1,8 @@
 package com.example.walletservice.service;
 
+import com.example.walletservice.domain.OperationType;
 import com.example.walletservice.dto.WalletBalanceResponse;
 import com.example.walletservice.dto.WalletOperationRequest;
-import com.example.walletservice.domain.OperationType;
 import com.example.walletservice.error.InsufficientFundsException;
 import com.example.walletservice.error.WalletNotFoundException;
 import com.example.walletservice.persistence.WalletRepository;
@@ -22,22 +22,17 @@ public class WalletService {
 
     public WalletBalanceResponse operate(WalletOperationRequest req) {
         UUID id = req.walletId();
+
         BigDecimal amount = req.amount();
+        BigDecimal delta = (req.operationType() == OperationType.DEPOSIT) ? amount : amount.negate();
 
-        BigDecimal delta = (req.operationType() == OperationType.DEPOSIT)
-                ? amount
-                : amount.negate();
+        WalletRepository.ApplyDeltaResult result = repo.applyDelta(id, delta);
 
-        var updated = repo.applyDelta(id, delta);
-        if (updated.isPresent()) {
-            return new WalletBalanceResponse(id, updated.get());
-        }
-
-        // Неудача: либо кошелька нет, либо денег не хватило.
-        if (!repo.exists(id)) {
-            throw new WalletNotFoundException(id);
-        }
-        throw new InsufficientFundsException(id);
+        return switch (result.status()) {
+            case UPDATED -> new WalletBalanceResponse(id, result.balance());
+            case WALLET_NOT_FOUND -> throw new WalletNotFoundException(id);
+            case INSUFFICIENT_FUNDS -> throw new InsufficientFundsException(id);
+        };
     }
 
     public WalletBalanceResponse getBalance(UUID walletId) {

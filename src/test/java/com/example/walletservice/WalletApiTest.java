@@ -14,7 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest
 @AutoConfigureMockMvc
-class WalletApiIT extends AbstractPostgresIT {
+class WalletApiTest extends AbstractPostgresTest {
 
     @Autowired
     private MockMvc mockMvc;

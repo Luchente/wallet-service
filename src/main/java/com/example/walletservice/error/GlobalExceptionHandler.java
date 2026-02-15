@@ -11,6 +11,8 @@ import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.NoHandlerFoundException;
 
 import java.time.Instant;
 import java.util.*;
@@ -43,8 +45,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<ApiErrorResponse> handleMethodNotAllowed(HttpRequestMethodNotSupportedException ex,
-                                                                   HttpServletRequest request) {
+    public ResponseEntity<ApiErrorResponse> handleMethodNotAllowed(HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
         List<String> supported = ex.getSupportedHttpMethods() == null
                 ? List.of()
                 : ex.getSupportedHttpMethods().stream().map(Object::toString).toList();
@@ -63,9 +64,9 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ApiErrorResponse> handleBeanValidation(MethodArgumentNotValidException ex,
-                                                                 HttpServletRequest request) {
-        List<Map<String, Object>> fieldErrors = new ArrayList<>();
+    public ResponseEntity<ApiErrorResponse> handleBeanValidation(MethodArgumentNotValidException ex, HttpServletRequest request) {
+        List<Map<String, String>> fieldErrors = new ArrayList<>();
+
         for (FieldError fe : ex.getBindingResult().getFieldErrors()) {
             fieldErrors.add(Map.of(
                     "field", fe.getField(),
@@ -84,8 +85,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(ConstraintViolationException.class)
-    public ResponseEntity<ApiErrorResponse> handleConstraintViolation(ConstraintViolationException ex,
-                                                                      HttpServletRequest request) {
+    public ResponseEntity<ApiErrorResponse> handleConstraintViolation(ConstraintViolationException ex, HttpServletRequest request) {
         List<String> violations = ex.getConstraintViolations().stream()
                 .map(v -> v.getPropertyPath() + ": " + v.getMessage())
                 .toList();
@@ -100,11 +100,50 @@ public class GlobalExceptionHandler {
                 ));
     }
 
-    @ExceptionHandler(HttpMessageNotReadableException.class)
-    public ResponseEntity<ApiErrorResponse> handleInvalidJson(HttpMessageNotReadableException ex,
-                                                              HttpServletRequest request) {
-        Throwable root = rootCause(ex);
+    /**
+     * Например: /wallets/not-a-uuid
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("parameter", ex.getName());
+        details.put("value", String.valueOf(ex.getValue()));
+        details.put("expectedType", ex.getRequiredType() == null ? "unknown" : ex.getRequiredType().getSimpleName());
 
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ApiErrorResponse(
+                        "INVALID_VALUE",
+                        "Некорректное значение параметра",
+                        Instant.now(),
+                        request.getRequestURI(),
+                        details
+                ));
+    }
+
+    /**
+     * Единый формат 404 на неизвестный эндпоинт.
+     * Требует:
+     * spring.mvc.throw-exception-if-no-handler-found=true
+     * spring.web.resources.add-mappings=false
+     */
+    @ExceptionHandler(NoHandlerFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleNoHandler(NoHandlerFoundException ex, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ApiErrorResponse(
+                        "NOT_FOUND",
+                        "Эндпоинт не найден",
+                        Instant.now(),
+                        request.getRequestURI(),
+                        Map.of(
+                                "method", ex.getHttpMethod(),
+                                "path", ex.getRequestURL()
+                        )
+                ));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidJson(HttpMessageNotReadableException ex, HttpServletRequest request) {
+        Throwable root = rootCause(ex);
 
         if (root instanceof InvalidFormatException ife) {
             String field = "unknown";
@@ -114,9 +153,10 @@ public class GlobalExceptionHandler {
             }
 
             Class<?> targetType = ife.getTargetType();
-            List<String> allowedValues = targetType != null && targetType.isEnum()
-                    ? Arrays.stream(targetType.getEnumConstants()).map(Object::toString).toList()
-                    : List.of();
+            List<String> allowedValues =
+                    (targetType != null && targetType.isEnum())
+                            ? Arrays.stream(targetType.getEnumConstants()).map(Object::toString).toList()
+                            : List.of();
 
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("field", field);
@@ -135,7 +175,6 @@ public class GlobalExceptionHandler {
                             details
                     ));
         }
-
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(new ApiErrorResponse(

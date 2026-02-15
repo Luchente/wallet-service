@@ -12,6 +12,26 @@ import java.util.UUID;
 @Repository
 public class WalletRepository {
 
+    public enum ApplyDeltaStatus {
+        UPDATED,
+        WALLET_NOT_FOUND,
+        INSUFFICIENT_FUNDS
+    }
+
+    public record ApplyDeltaResult(ApplyDeltaStatus status, BigDecimal balance) {
+        public static ApplyDeltaResult updated(BigDecimal balance) {
+            return new ApplyDeltaResult(ApplyDeltaStatus.UPDATED, balance);
+        }
+
+        public static ApplyDeltaResult walletNotFound() {
+            return new ApplyDeltaResult(ApplyDeltaStatus.WALLET_NOT_FOUND, null);
+        }
+
+        public static ApplyDeltaResult insufficientFunds() {
+            return new ApplyDeltaResult(ApplyDeltaStatus.INSUFFICIENT_FUNDS, null);
+        }
+    }
+
     private final NamedParameterJdbcTemplate jdbc;
 
     public WalletRepository(NamedParameterJdbcTemplate jdbc) {
@@ -30,34 +50,50 @@ public class WalletRepository {
         }
     }
 
-    public boolean exists(UUID walletId) {
-        String sql = "SELECT EXISTS(SELECT 1 FROM wallets WHERE id = :id)";
-        var params = new MapSqlParameterSource("id", walletId);
-        Boolean exists = jdbc.queryForObject(sql, params, Boolean.class);
-        return Boolean.TRUE.equals(exists);
-    }
-
     /**
-     * Atomic update:
-     * - один SQL UPDATE
-     * - Postgres сам делает row-level lock
-     * - нет read-modify-write в Java => нет lost update под высокой конкуренцией
+     * Один SQL-стейтмент, который отличает:
+     * - кошелёк не найден (404)
+     * - недостаточно средств (409)
+     * - успешное обновление (200)
+     *
+     * Работает атомарно: UPDATE делает row-level lock внутри Postgres.
      */
-    public Optional<BigDecimal> applyDelta(UUID walletId, BigDecimal delta) {
+    public ApplyDeltaResult applyDelta(UUID walletId, BigDecimal delta) {
         String sql = """
+            WITH wallet AS (
+                SELECT 1 AS exists
+                FROM wallets
+                WHERE id = :id
+            ),
+            upd AS (
                 UPDATE wallets
-                   SET balance = balance + :delta
-                 WHERE id = :id
-                   AND balance + :delta >= 0
+                SET balance = balance + :delta
+                WHERE id = :id
+                  AND balance + :delta >= 0
                 RETURNING balance
-                """;
+            )
+            SELECT
+              (SELECT balance FROM upd)   AS balance,
+              (SELECT exists  FROM wallet) AS exists
+            """;
 
         var params = new MapSqlParameterSource()
                 .addValue("id", walletId)
                 .addValue("delta", delta);
 
-        return jdbc.query(sql, params, rs -> rs.next()
-                ? Optional.of(rs.getBigDecimal("balance"))
-                : Optional.empty());
+        return jdbc.query(sql, params, rs -> {
+            rs.next(); // SELECT без FROM всегда возвращает 1 строку
+
+            BigDecimal balance = rs.getBigDecimal("balance");
+            Object exists = rs.getObject("exists");
+
+            if (exists == null) {
+                return ApplyDeltaResult.walletNotFound();
+            }
+            if (balance == null) {
+                return ApplyDeltaResult.insufficientFunds();
+            }
+            return ApplyDeltaResult.updated(balance);
+        });
     }
 }

@@ -10,7 +10,7 @@ services:
     volumes:
       - dbdata:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wallet} -d ${POSTGRES_DB:-wallet}" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-wallet} -d ${POSTGRES_DB:-wallet}"]
       interval: 3s
       timeout: 3s
       retries: 20
@@ -21,11 +21,14 @@ services:
       db:
         condition: service_healthy
     environment:
-      APP_PORT: ${APP_PORT:-8080}
-      DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-wallet}
-      DB_USER: ${POSTGRES_USER:-wallet}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-wallet}
+      DB_URL: ${DB_URL:-jdbc:postgresql://db:5432/wallet}
+      DB_USER: ${DB_USER:-wallet}
+      DB_PASSWORD: ${DB_PASSWORD:-wallet}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-50}
+      DB_POOL_MIN_IDLE: ${DB_POOL_MIN_IDLE:-10}
+      DB_CONN_TIMEOUT_MS: ${DB_CONN_TIMEOUT_MS:-2000}
     ports:
       - "${APP_PORT:-8080}:8080"
 
