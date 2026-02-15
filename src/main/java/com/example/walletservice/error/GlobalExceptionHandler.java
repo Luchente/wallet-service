@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.ErrorResponseException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -25,6 +26,20 @@ import org.slf4j.Logger;
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex,
+                                                                     HttpServletRequest req) {
+        return ResponseEntity.status(405).body(
+                new ApiErrorResponse(
+                        "METHOD_NOT_ALLOWED",
+                        "Метод не поддерживается для этого эндпоинта",
+                        Instant.now(),
+                        req.getRequestURI(),
+                        Map.of("supportedMethods", ex.getSupportedHttpMethods())
+                )
+        );
+    }
 
     @ExceptionHandler(WalletNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleNotFound(WalletNotFoundException ex, HttpServletRequest req) {
