@@ -3,7 +3,9 @@ package com.example.walletservice.error;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
@@ -15,12 +17,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
-import org.slf4j.Logger;
-
+import java.util.*;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -30,20 +27,27 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
     public ResponseEntity<ApiErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex,
                                                                      HttpServletRequest req) {
-        return ResponseEntity.status(405).body(
+        List<String> supported = ex.getSupportedHttpMethods() == null
+                ? List.of()
+                : ex.getSupportedHttpMethods().stream().map(m -> m.name()).toList();
+
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(
                 new ApiErrorResponse(
                         "METHOD_NOT_ALLOWED",
                         "Метод не поддерживается для этого эндпоинта",
                         Instant.now(),
                         req.getRequestURI(),
-                        Map.of("supportedMethods", ex.getSupportedHttpMethods())
+                        Map.of(
+                                "method", req.getMethod(),
+                                "supportedMethods", supported
+                        )
                 )
         );
     }
 
     @ExceptionHandler(WalletNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleNotFound(WalletNotFoundException ex, HttpServletRequest req) {
-        return ResponseEntity.status(404).body(
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
                 new ApiErrorResponse(
                         "WALLET_NOT_FOUND",
                         "Кошелёк не найден",
@@ -56,7 +60,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(InsufficientFundsException.class)
     public ResponseEntity<ApiErrorResponse> handleInsufficient(InsufficientFundsException ex, HttpServletRequest req) {
-        return ResponseEntity.status(409).body(
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(
                 new ApiErrorResponse(
                         "INSUFFICIENT_FUNDS",
                         "Недостаточно средств",
@@ -87,7 +91,8 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
-    public ResponseEntity<ApiErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex, HttpServletRequest req) {
+    public ResponseEntity<ApiErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex,
+                                                               HttpServletRequest req) {
         return ResponseEntity.badRequest().body(
                 new ApiErrorResponse(
                         "INVALID_PATH_VARIABLE",
@@ -130,10 +135,12 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ErrorResponseException.class)
     public ResponseEntity<ApiErrorResponse> handleSpringError(ErrorResponseException ex, HttpServletRequest req) {
         int status = ex.getStatusCode().value();
+        String detail = ex.getBody() != null ? ex.getBody().getDetail() : null;
+
         return ResponseEntity.status(status).body(
                 new ApiErrorResponse(
                         "REQUEST_ERROR",
-                        ex.getBody().getDetail(),
+                        detail != null ? detail : "Ошибка запроса",
                         Instant.now(),
                         req.getRequestURI(),
                         Map.of("status", status)
@@ -145,7 +152,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiErrorResponse> handleAny(Exception ex, HttpServletRequest req) {
         log.error("Unhandled error: {} {}", req.getMethod(), req.getRequestURI(), ex);
 
-        return ResponseEntity.status(500).body(
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
                 new ApiErrorResponse(
                         "INTERNAL_ERROR",
                         "Внутренняя ошибка сервера",
@@ -157,14 +164,15 @@ public class GlobalExceptionHandler {
     }
 
     private Map<String, String> toFieldError(FieldError fe) {
-        Map<String, String> m = new HashMap<>();
+        Map<String, String> m = new LinkedHashMap<>();
         m.put("field", fe.getField());
         m.put("message", fe.getDefaultMessage() == null ? "invalid" : fe.getDefaultMessage());
         return m;
     }
 
     private Map<String, Object> invalidFormatDetails(InvalidFormatException ife) {
-        Map<String, Object> details = new HashMap<>();
+        Map<String, Object> details = new LinkedHashMap<>();
+
         details.put("value", String.valueOf(ife.getValue()));
 
         String field = extractFieldPath(ife.getPath());
@@ -175,6 +183,14 @@ public class GlobalExceptionHandler {
         Class<?> targetType = ife.getTargetType();
         if (targetType != null) {
             details.put("expectedType", targetType.getSimpleName());
+
+            if (targetType.isEnum()) {
+                Object[] constants = targetType.getEnumConstants();
+                if (constants != null) {
+                    List<String> allowed = Arrays.stream(constants).map(Object::toString).toList();
+                    details.put("allowedValues", allowed);
+                }
+            }
         }
 
         return details;
@@ -182,7 +198,6 @@ public class GlobalExceptionHandler {
 
     private String extractFieldPath(List<JsonMappingException.Reference> path) {
         if (path == null || path.isEmpty()) return null;
-        JsonMappingException.Reference last = path.get(path.size() - 1);
-        return last.getFieldName();
+        return path.get(path.size() - 1).getFieldName();
     }
 }
