@@ -9,4 +9,10 @@ public record ApiErrorResponse(
         Instant timestamp,
         String path,
         Map<String, Object> details
-) {}
+) {
+    public ApiErrorResponse {
+        if (details == null) {
+            details = Map.of();
+        }
+    }
+}
