@@ -19,7 +19,7 @@ public record WalletOperationRequest(
 
         @NotNull(message = "amount обязателен")
         @DecimalMin(value = "0.01", message = "amount должен быть больше 0")
-        @Digits(integer = 19, fraction = 2, message = "amount: максимум 2 знака после запятой")
+        @Digits(integer = 17, fraction = 2, message = "amount: максимум 2 знака после запятой")
         BigDecimal amount
 ) {
 }
