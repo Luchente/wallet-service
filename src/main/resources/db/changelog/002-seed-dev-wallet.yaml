@@ -1,0 +1,11 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-seed-dev-wallet
+      author: candidate
+      context: dev
+      changes:
+        - sql:
+            sql: |
+              INSERT INTO wallets (id, balance)
+              VALUES ('00000000-0000-0000-0000-000000000001', 0)
+              ON CONFLICT (id) DO NOTHING;
