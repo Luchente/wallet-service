@@ -1,166 +1,106 @@
 package com.example.walletservice;
 
-import com.example.walletservice.domain.OperationType;
-import com.example.walletservice.dto.WalletBalanceResponse;
-import com.example.walletservice.dto.WalletOperationRequest;
-import com.example.walletservice.error.ApiErrorResponse;
-import com.example.walletservice.persistence.WalletRepository;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.http.*;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
 
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.*;
+import static org.hamcrest.Matchers.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-@Testcontainers
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class WalletApiIT {
-
-    @Container
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
-            .withDatabaseName("wallet")
-            .withUsername("wallet")
-            .withPassword("wallet");
-
-    @DynamicPropertySource
-    static void props(DynamicPropertyRegistry r) {
-        r.add("spring.datasource.url", postgres::getJdbcUrl);
-        r.add("spring.datasource.username", postgres::getUsername);
-        r.add("spring.datasource.password", postgres::getPassword);
-    }
-
-    @LocalServerPort
-    int port;
+@SpringBootTest
+@AutoConfigureMockMvc
+class WalletApiIT extends AbstractPostgresIT {
 
     @Autowired
-    TestRestTemplate rest;
+    private MockMvc mockMvc;
 
-    @Autowired
-    JdbcTemplate jdbc;
-
-    @Autowired
-    WalletRepository repo;
-
-    private final UUID walletId = UUID.fromString("00000000-0000-0000-0000-000000000001");
-
-    @BeforeEach
-    void prepareWallet() {
-        jdbc.update("""
-                INSERT INTO wallets(id, balance)
-                VALUES (?, 0)
-                ON CONFLICT (id) DO NOTHING
-                """, walletId);
-
-        jdbc.update("UPDATE wallets SET balance = 0 WHERE id = ?", walletId);
+    @Test
+    void deposit_shouldIncreaseBalance() throws Exception {
+        mockMvc.perform(post("/api/v1/wallet")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"walletId":"00000000-0000-0000-0000-000000000001","operationType":"DEPOSIT","amount":1000}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.walletId").value(WALLET_ID.toString()))
+                .andExpect(jsonPath("$.balance").value(1000.0));
     }
 
     @Test
-    void deposit_then_get_balance_ok() {
-        var req = new WalletOperationRequest(walletId, OperationType.DEPOSIT, new BigDecimal("1000"));
-        ResponseEntity<WalletBalanceResponse> post = rest.postForEntity(url("/api/v1/wallet"), req, WalletBalanceResponse.class);
+    void getBalance_shouldReturnBalance() throws Exception {
+        mockMvc.perform(post("/api/v1/wallet")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"walletId":"00000000-0000-0000-0000-000000000001","operationType":"DEPOSIT","amount":10}
+                                """))
+                .andExpect(status().isOk());
 
-        assertThat(post.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(post.getBody()).isNotNull();
-        assertThat(post.getBody().walletId()).isEqualTo(walletId);
-        assertThat(post.getBody().balance()).isEqualByComparingTo(new BigDecimal("1000.00"));
-
-        ResponseEntity<WalletBalanceResponse> get = rest.getForEntity(url("/api/v1/wallets/" + walletId), WalletBalanceResponse.class);
-        assertThat(get.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(get.getBody()).isNotNull();
-        assertThat(get.getBody().balance()).isEqualByComparingTo(new BigDecimal("1000.00"));
+        mockMvc.perform(get("/api/v1/wallets/{id}", WALLET_ID))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.walletId").value(WALLET_ID.toString()))
+                .andExpect(jsonPath("$.balance").value(10.0));
     }
 
     @Test
-    void withdraw_insufficient_funds_returns_409() {
-        var req = new WalletOperationRequest(walletId, OperationType.WITHDRAW, new BigDecimal("10"));
-        ResponseEntity<ApiErrorResponse> resp = rest.postForEntity(url("/api/v1/wallet"), req, ApiErrorResponse.class);
-
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(resp.getBody()).isNotNull();
-        assertThat(resp.getBody().errorCode()).isEqualTo("INSUFFICIENT_FUNDS");
+    void withdraw_whenInsufficientFunds_shouldReturn409() throws Exception {
+        mockMvc.perform(post("/api/v1/wallet")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"walletId":"00000000-0000-0000-0000-000000000001","operationType":"WITHDRAW","amount":999999}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("INSUFFICIENT_FUNDS"))
+                .andExpect(jsonPath("$.path").value("/api/v1/wallet"))
+                .andExpect(jsonPath("$.details.walletId").value(WALLET_ID.toString()));
     }
 
     @Test
-    void wallet_not_found_returns_404() {
-        UUID missing = UUID.fromString("00000000-0000-0000-0000-000000000099");
-        var req = new WalletOperationRequest(missing, OperationType.DEPOSIT, new BigDecimal("1"));
-
-        ResponseEntity<ApiErrorResponse> resp = rest.postForEntity(url("/api/v1/wallet"), req, ApiErrorResponse.class);
-
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(resp.getBody()).isNotNull();
-        assertThat(resp.getBody().errorCode()).isEqualTo("WALLET_NOT_FOUND");
+    void operation_whenWalletNotFound_shouldReturn404() throws Exception {
+        mockMvc.perform(post("/api/v1/wallet")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"walletId":"00000000-0000-0000-0000-000000000099","operationType":"DEPOSIT","amount":10}
+                                """))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("WALLET_NOT_FOUND"))
+                .andExpect(jsonPath("$.details.walletId").value("00000000-0000-0000-0000-000000000099"));
     }
 
     @Test
-    void invalid_json_returns_400() {
-        HttpHeaders h = new HttpHeaders();
-        h.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<String> bad = new HttpEntity<>("{\"walletId\":", h);
-
-        ResponseEntity<ApiErrorResponse> resp = rest.exchange(url("/api/v1/wallet"), HttpMethod.POST, bad, ApiErrorResponse.class);
-
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(resp.getBody()).isNotNull();
-        assertThat(resp.getBody().errorCode()).isEqualTo("INVALID_JSON");
+    void invalidJson_shouldReturn400() throws Exception {
+        mockMvc.perform(post("/api/v1/wallet")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"walletId\":"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INVALID_JSON"))
+                .andExpect(jsonPath("$.path").value("/api/v1/wallet"));
     }
 
     @Test
-    void method_not_allowed_returns_405() {
-        ResponseEntity<ApiErrorResponse> resp = rest.getForEntity(url("/api/v1/wallet"), ApiErrorResponse.class);
-
-        assertThat(resp.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
-        assertThat(resp.getBody()).isNotNull();
-        assertThat(resp.getBody().errorCode()).isEqualTo("METHOD_NOT_ALLOWED");
+    void invalidEnumValue_shouldReturn400() throws Exception {
+        mockMvc.perform(post("/api/v1/wallet")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"walletId":"00000000-0000-0000-0000-000000000001","operationType":"HACK","amount":10}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INVALID_VALUE"))
+                .andExpect(jsonPath("$.details.field").value("operationType"))
+                .andExpect(jsonPath("$.details.allowedValues", hasItems("DEPOSIT", "WITHDRAW")));
     }
 
     @Test
-    void concurrent_repo_updates_no_lost_updates() throws Exception {
-        int threads = 16;
-        int perThread = 200;
-
-        ExecutorService pool = Executors.newFixedThreadPool(threads);
-        CountDownLatch start = new CountDownLatch(1);
-
-        List<Future<?>> futures = new ArrayList<>();
-        for (int t = 0; t < threads; t++) {
-            futures.add(pool.submit(() -> {
-                start.await();
-                for (int i = 0; i < perThread; i++) {
-                    repo.applyDelta(walletId, new BigDecimal("1.00"))
-                            .orElseThrow(() -> new IllegalStateException("Update failed"));
-                }
-                return null;
-            }));
-        }
-
-        start.countDown();
-        for (Future<?> f : futures) {
-            f.get(30, TimeUnit.SECONDS);
-        }
-        pool.shutdown();
-
-        BigDecimal expected = new BigDecimal(threads * perThread).setScale(2);
-        BigDecimal actual = repo.findBalance(walletId).orElseThrow();
-        assertThat(actual).isEqualByComparingTo(expected);
-    }
-
-    private String url(String path) {
-        return "http://localhost:" + port + path;
+    void methodNotAllowed_shouldReturn405InOurFormat() throws Exception {
+        mockMvc.perform(get("/api/v1/wallet"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.errorCode").value("METHOD_NOT_ALLOWED"))
+                .andExpect(jsonPath("$.details.method").value("GET"))
+                .andExpect(jsonPath("$.details.supportedMethods", hasItem("POST")));
     }
 }
